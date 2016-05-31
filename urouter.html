@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html>
+
+  <canvas id="myCanvas" width="1362" height="28"></canvas>
+    <style type="text/css">
+    #myCanvas{
+         background-color:#b3ecff;
+         border:2px solid #000000;
+    }
+    </style>
+  <head>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <meta charset="utf-8">
+    <title>UROUTER</title>
+    <style> 
+      html, body, #map {
+      width: 1360px;
+      height: 725px;
+        margin: 0px;
+        padding: 0px
+      }
+
+      #floating-panel {
+        position: absolute;
+        top: 48px;
+        left: 6px;
+        z-index: 5;
+        background-color: #fff;
+        padding: 5px;
+        border: 2px solid #999;
+        text-align: center;
+        font-family: 'Roboto','sans-serif';
+        line-height: 30px;
+        padding-left: 10px;
+      }
+
+
+
+    </style>
+
+
+   <script src="http://ajax.googleapis.com/ajax/libs/jquery/2.0.0/jquery.min.js"></script>
+   <script src="https://maps.googleapis.com/maps/api/js?libraries=drawing,places"></script>
+
+
+</head>
+
+  <body>
+     <!--Label the buttons and point to relevant functions-->
+
+    <div id="floating-panel">
+      <input onclick="doConfirm();" type=button value="Get Route">
+      <input onclick="deleteMarkers();" type=button value="Retry">
+      <input onclick="showHelp();" type=button value="Show Help">
+      <input onclick="moveOn();" type=button value="NEXT MAP!">
+
+
+    </div>
+   <div id="map"></div>
+  </body>
+
+<script>
+
+var apiKey = 'AIzaSyAYtY6mU5yzSCIror1uX16u-mNQJESHr8I';
+
+//Variable to hold the map generated
+var map;
+
+var polylines = [];
+var markerCoordinates = [];
+
+//marker object for the circle
+var cityCircle;
+
+//game audio files
+var glass = new Audio('glass.mp3');
+var claps = new Audio('claps.mp3');
+var failure = new Audio('failure.wav');
+
+//flag to indicate if the route was obtained
+var got_route = false;
+
+//store the encoded strings
+var encodeString;
+var enc_list = [];
+
+//latitude and longitudes foe the current map
+var lat_src;
+var long_src; 
+var lat_dst;
+var long_dst; 
+var lat_via;
+var long_via;
+
+//this is the duration of travel for the players current guess
+var resp_dur = 0;
+
+//placeholder for player name
+var person;
+var marker1;
+var lines = [];
+var show_results = false;
+var waypoints_placed = 0;
+
+
+//Store the content strings for each of the infowindows that pop up in the game
+var contentString = '<div id="content">'+
+    '<div id="siteNotice">'+
+    '</div>'+
+    '<h1 id="firstHeading" class="firstHeading">Welcome to U-Router!</h1>'+
+    '<div id="bodyContent">'+
+    '<p>The aim of the game is to get from the <b>yellow cab</b> marker ' +
+    'to the <b>arrow</b> marker but avoid the obstruction in the <b>red circle </b> where travel time will increase significantly. </p>'+
+    '<p>Google has a predicted time through the obstruction - <b>you need to beat it!</b></p>'+
+    '<ol>' +
+    '<li>Place waypoints</li>' +
+    '<li>When you are happy click <b>Get Route</b></li>' +
+    '<li>If your route looks good click <b>Next Map</b> otherwise click <b>Retry</b></li>' +
+   
+    '</ol>' +
+    '<p>Your score will update based on <b>how many seconds your guess differs from Google</b></p>'+
+    '<p>Have fun!</p>'+
+    '</div>'+
+    '</div>';
+
+var contentString_end = '<div id="content">'+
+    '<div id="siteNotice">'+
+    '</div>'+
+    '<h1 id="firstHeading" class="firstHeading">That&#39s it!</h1>'+
+    '<div id="bodyContent">'+
+    '<p>You completed all the maps. Click <b>Next Map</b> to see your final scores.</p>'+
+    '</div>'+
+    '</div>';
+
+var contentString_retry = '<div id="content">'+
+    '<div id="siteNotice">'+
+    '</div>'+
+    '<h1 id="firstHeading" class="firstHeading">You don&#39t seem to have placed any waypoints?</h1>'+
+    '<div id="bodyContent">'+
+    '<p>You need to make at least one attempt before moving on!</p>'+
+    '</div>'+
+    '</div>';
+
+var contentString_more = '<div id="content">'+
+    '<div id="siteNotice">'+
+    '</div>'+
+    '<h1 id="firstHeading" class="firstHeading">More waypoints please!</h1>'+
+    '<div id="bodyContent">'+
+    '<p>You need to place at least 3 waypoints before attempting a route</p>'+
+    '</div>'+
+    '</div>';
+
+var contentString_start = '<div id="content">'+
+    '<div id="siteNotice">'+
+    '<div id="bodyContent">'+
+    '<p><b>Start here!</b></p>'+
+    '</div>'+
+    '</div>';
+
+var contentString_finish = '<div id="content">'+
+    '<div id="siteNotice">'+
+    '<div id="bodyContent">'+
+    '<p><b>Finish here!</b></p>'+
+    '</div>'+
+    '</div>';
+
+//idx stores where we are in the list of maps and enables indexing to the correct array position		
+var idx = 0;
+
+//score variables
+var current_score = 0;
+var new_score = 0;
+
+//canvas variable, used to change banner info like score etc
+var canvas = document.getElementById("myCanvas");
+
+//infowindwow for help text
+var infowindow = new google.maps.InfoWindow({
+  content: contentString    
+  //pixelOffset: new google.maps.Size(0, -60)
+
+});
+
+//infowindow for end game text
+var infowindow_end = new google.maps.InfoWindow({
+  content: contentString_end
+});
+
+//inforwindow to request more waypoints
+var infowindow_more = new google.maps.InfoWindow({
+  content: contentString_more
+});
+
+//infowindow to request player places at least one waypoint
+var infowindow_retry = new google.maps.InfoWindow({
+  content: contentString_retry
+});
+
+//infowindow to indicate start point
+var infowindow_start = new google.maps.InfoWindow({
+  content: contentString_start
+});
+
+//infowindow to indicate end point
+var infowindow_finish = new google.maps.InfoWindow({
+  content: contentString_finish
+});
+
+//canvas variable
+var ctx = canvas.getContext("2d");
+//variable to store marker positions
+var markers = [];
+
+//variables to store scores
+var myScore = [];
+var gScore = [];
+
+//variable to store players polyline
+var myPath;
+
+//number of maps
+var num_maps;
+
+//string array for names of src, dst and vias
+var namesrc_arr = [];
+var namedst_arr = [];
+var namevia_arr = [];
+
+//function to draw the score banner at the top of the page
+function drawScore(name_src, name_dst, name_via) {
+    
+
+    ctx.font = "bold 18px verdana";
+    ctx.fillStyle = "#0099cc";
+    ctx.fillText("Maps Completed: " + idx + "/" + num_maps, 2, 20);     
+
+    //source field
+    ctx.font = "bold 18px verdana";
+    ctx.fillStyle = "#000000";
+	ctx.fillText("Source: ", 260, 20);
+    ctx.font = "18px verdana";
+    ctx.fillStyle = "#cc7a00";
+    ctx.fillText(name_src, 340, 20);
+
+    //dest field
+    ctx.font = "bold 18px verdana";
+    ctx.fillStyle = "#000000";
+    ctx.fillText("Destination: ", 570, 20);
+    ctx.font = "18px verdana";
+    ctx.fillStyle = "#009900";
+    ctx.fillText(name_dst, 700, 20);
+
+    //via field
+    ctx.font = "bold 18px verdana";
+    ctx.fillStyle = "#000000";
+    ctx.fillText("Avoid: ", 880, 20);
+    ctx.font = "18px verdana";
+    ctx.fillStyle = "#ff0000";  //<======= here
+    ctx.fillText(name_via,  948, 20);
+
+    ctx.fillStyle = "#000000";
+    ctx.font = "bold 18px verdana";
+    
+    //score
+    //ctx.textAlign="left";
+    ctx.fillText("Score: "+new_score, 1140, 20);
+
+}
+
+//clear the score values to ensure clean canvas
+function clearScore() {
+    ctx.clearRect(0, 0, 1400, 40);
+}
+
+//function to start the game, allows further functions to be called if needed before initialize
+function start_game() {
+   initialize()
+
+}
+
+//function to pull in CSV with times data
+function FileHelper()
+{}
+{
+    FileHelper.readStringFromFileAtPath = function(pathOfFileToReadFrom)
+    {
+        var request = new XMLHttpRequest();
+        request.open("GET", pathOfFileToReadFrom, false);
+        request.send(null);
+        var returnValue = request.responseText;
+
+        return returnValue;
+    }
+}
+
+//fumction to place user marker on the map and pan to it
+function placeMarkerAndPanTo(latLng, map) {
+        var marker = new google.maps.Marker({
+          position: latLng,
+          map: map
+        });
+        markerCoordinates.push({
+        location:  latLng,
+        stopover: false
+      });
+        //map.panTo(latLng);
+        //this marker is pushed into the marker array, this allows for clearing later
+        markers.push(marker);
+        //print the lat and long to the console for debug
+        console.log(latLng.toString());
+        console.log(markerCoordinates.length);
+        waypoints_placed ++;
+        console.log(waypoints_placed)
+        //increase the number of waypoints placed counter to allow checking against minimum
+
+     
+}
+
+// Sets the map on all markers in the array.
+function setMapOnAll(map) {
+  for (var i = 0; i < markers.length; i++) {
+    markers[i].setMap(map);
+  }
+}
+
+// Takes off the markers from the map, but allow them stay in the array.
+function clearMarkers() {
+  setMapOnAll(null)
+  console.log(waypoints_placed)
+  waypoints_placed = 0
+}
+
+// Display any markers that are in the array.
+function showMarkers() {
+  setMapOnAll(map);
+}
+
+// Deletes all markers in the array by removing references to them.
+function deleteMarkers() {
+  clearMarkers()
+  markers = []
+  removeLine()
+  markerCoordinates = []
+ //closes the retry window
+  infowindow_retry.close()
+
+}
+
+//show the help window, shown at start and when the button is clicked
+function showHelp() {
+    infowindow.setPosition({lat: lat_via, lng: long_via});
+    infowindow.open(map, cityCircle);
+}
+
+//initialize the window and start the game    
+function initialize() {
+
+    //show the current index in the log
+    console.log(idx);
+
+    //get the CSV file with time and src/dst/via info with coordinates
+    var text = FileHelper.readStringFromFileAtPath ( "times.csv" );
+    var array = text.split('\n');
+
+    console.log(array.length);
+
+    //get the number of maps
+    num_maps = array.length - 1;
+
+    //customize the map style
+    var styles = [
+        {
+          stylers: [
+            { hue: "#00ffe6" },
+            { saturation: -20 }
+          ]
+        },{
+          featureType: "road",
+          elementType: "geometry",
+          stylers: [
+            { lightness: 100 },
+            { visibility: "simplified" }
+          ]
+        },{
+          featureType: "road",
+          elementType: "labels",
+          stylers: [
+            { visibility: "on" }
+          ]
+        },{
+          featureType: "transit", 
+          elementType: "labels", 
+          stylers: [
+            { visibility: "off" }
+           ]
+        }
+      ];
+
+    //variable for the map with the map style
+    var styledMap = new google.maps.StyledMapType(styles,
+    {name: "Styled Map"});
+
+    //split the CSV rows with the relevant data
+    var array_split = array[idx].split(',');
+    name_src = array_split[0];
+    name_dst = array_split[1];
+    name_via = array_split[2];
+
+    namesrc_arr.push(name_src);
+    namedst_arr.push(name_dst);
+    namevia_arr.push(name_via);
+
+    //store all the lat and long coordinates
+    lat_src = parseFloat(array_split[6]);
+    long_src = parseFloat(array_split[7]);
+
+    lat_dst = parseFloat(array_split[8]);
+    long_dst = parseFloat(array_split[9]);
+
+    lat_via = parseFloat(array_split[10]);
+    long_via = parseFloat(array_split[11]);
+    dur_pes = parseFloat(array_split[17]);
+
+    //display the src,dst and via for debug
+    console.log(name_src, name_dst, name_via) ;
+
+    //set the bounds to allow centering of the map
+    var bounds = new google.maps.LatLngBounds();
+    var mapOptions = {      mapTypeIds: [google.maps.MapTypeId.ROADMAP, 'map_style']
+     };
+
+    //change the cursor to be something that is easier to place waypoints
+    map = new google.maps.Map(document.getElementById('map'), {mapOptions    });
+    map.setOptions({draggableCursor:'crosshair'});
+
+    //set the map style
+    map.mapTypes.set('map_style', styledMap);
+    map.setMapTypeId('map_style');
+    map.setOptions({styles: styles});
+
+    //place a marker when the player places a waypoint
+    map.addListener('click', function(e) {
+      placeMarkerAndPanTo(e.latLng, map);
+    });
+
+    //place a circle at the via point
+    google.maps.event.addListenerOnce(map, 'idle', function(){
+        var zoom_level = map.getZoom();
+
+        //console.log(zoom_level);
+
+        cityCircle = new google.maps.Circle({
+          strokeColor: '#FF0000',
+          strokeOpacity: 0.8,
+          strokeWeight: 2,
+          fillColor: '#FF0000',
+          fillOpacity: 0.35,
+          map: map,
+          center: {lat: lat_via, lng: long_via},
+          //set the radius of the circle to be a product of the zoom level to keep
+          //it consistent across maps
+          radius: zoom_level * 12
+        });  
+         //only show the help if this is the first map
+         if (idx === 0) {
+            showHelp();
+         }
+           
+    });
+
+
+    marker1 = new google.maps.Marker({
+    map: map,
+    draggable: false,
+    icon: 'http://maps.google.com/mapfiles/kml/pal2/icon47.png',
+    animation: google.maps.Animation.DROP,
+    clickable: true,
+    position: {lat: lat_src, lng: long_src},    
+    title: name_src
+
+    });
+
+    if (idx == 0) {
+        //display the info start window if this is the first map
+        infowindow_start.setPosition({lat: lat_src, lng: long_src});
+        infowindow_start.open(map, marker1);        //
+    }
+    
+    //extend the bounds
+    bounds.extend(marker1.position);
+    marker1.setAnimation(google.maps.Animation.BOUNCE);
+
+    var marker2 = new google.maps.Marker({
+    map: map,
+    draggable: false,
+    icon: 'http://www.google.com/mapfiles/arrow.png',
+    animation: google.maps.Animation.DROP,
+    position: {lat: lat_dst, lng: long_dst},
+    title: name_dst
+
+    });
+
+    if (idx == 0) {
+        //display the info finish window if this is the first map
+        infowindow_finish.setPosition({lat: lat_dst, lng: long_dst});
+        infowindow_finish.open(map, marker2);        
+    }
+
+    //extend the bounds
+    bounds.extend(marker2.position);
+    marker2.setAnimation(google.maps.Animation.BOUNCE);
+
+    //fit the bounds, this ensures the map is centred around all the points
+    map.fitBounds(bounds);
+
+    //draw the score in the banner
+    drawScore(name_src, name_dst, name_via);
+
+}
+
+
+//do the lookup on the players guess
+//This is the most important part of the gme
+//We want to take the players line and do a lookup in the future
+//using those waypoints.
+//We store the result when in traffic and compare it against google's prediction 
+//and handle accordingly.
+function dirLookup(lat_src, long_src, lat_dst, long_dst, markerCoordinates){
+     var directionsService = new google.maps.DirectionsService();
+
+     var request = {
+          origin: {lat: lat_src, lng: long_src},
+          destination: {lat: lat_dst, lng: long_dst},
+          waypoints: markerCoordinates,
+          //this is supposed to optimize the waypoints, not sure if it actually works
+          optimizeWaypoints: true,
+          travelMode: google.maps.TravelMode.DRIVING,
+          drivingOptions: {
+            //set the departure time to be some point the future
+            departureTime: new Date(1480611600),  
+            //set to optimistic to give the player a chance against google
+            trafficModel: google.maps.TrafficModel.OPTIMISTIC
+          }
+      };
+    var lineSymbol = {
+      path: 'M 0,-1 0,1',
+      strokeOpacity: 1,
+      scale: 4
+    };
+
+      //do the request to google and make sure it gets a good response
+      directionsService.route(request, function(response, status) {
+        if (status == google.maps.DirectionsStatus.OK) {
+            //make sure we return the correct field from the response
+            resp_dur = response.routes[0].legs[0].duration.value;
+
+            //display the results to the console for debug
+            console.log(dur_pes, resp_dur, new_score, current_score);
+
+            //check the score, if it beats google then show a green line 
+            //and play a confirm sound and issue and infowindow
+            //otherwise ask them to retry if they want
+            if ( resp_dur < dur_pes) {
+                glass.play();
+                var linecol = '#339966';
+                var contentString_score = '<div id="content">'+
+                    '<div id="siteNotice">'+
+                    '</div>'+
+                    '<h1 id="firstHeading" class="firstHeading">Well Done!</h1>'+
+                    '<div id="bodyContent">'+
+                    '<p>Your route took: <b>'+ resp_dur + '</b> seconds</p>' +
+                    '<p>Google predicted: <b>'+ dur_pes + '</b> seconds</p>' +
+                    '</div>'+
+                    '</div>';
+            }
+            else {
+                failure.play();
+                var linecol = '#ff0000';
+                var contentString_score = '<div id="content">'+
+                    '<div id="siteNotice">'+
+                    '</div>'+
+                    '<h1 id="firstHeading" class="firstHeading">Sorry :(</h1>'+
+                    '<div id="bodyContent">'+
+                    '<p>Your route took: <b>'+ resp_dur + '</b> seconds</p>' +
+                    '<p>Google predicted: <b>'+ dur_pes + '</b> seconds</p>' +
+                    '</div>'+
+                    '</div>';
+            }
+
+            //update the score to reflect this round plus their cummulative score 
+            current_score = dur_pes - resp_dur + new_score;
+            console.log(dur_pes, resp_dur,  new_score, current_score);
+
+            //get the polyline data from the response to use for later
+            var poly_line = response.routes[0].overview_polyline;
+            var poly_path = response.routes[0].overview_path;
+
+            //display the polyline data for debug
+            console.log(poly_line);
+            console.log(poly_path);
+        
+        //mypath is the polyline created by the player based on the waypoints placed
+        myPath = new google.maps.Polyline({
+          path: poly_path,
+          geodesic: true,
+          strokeColor: linecol,
+          strokeOpacity: 0,
+          strokeWeight: 1,
+          icons: [{
+            icon: lineSymbol,
+            offset: '0',
+            repeat: '20px'
+          }],
+
+
+        });
+
+        //show how the player compared against google
+        var infowindow_score = new google.maps.InfoWindow({
+          content: contentString_score
+        });
+
+        //place all the data into the various arrays for later retrieval
+        lines[idx] = myPath;
+        myScore[idx] = resp_dur;
+        gScore[idx] = dur_pes;
+        //ensure correct placement of the score
+        infowindow_score.setPosition({lat: lat_via, lng: long_via});
+        infowindow_score.open(map, cityCircle);
+        //indicate we have got a route to check the player has made at least one attempt
+        got_route = true
+
+        //display the line
+        addLine();
+        
+        }
+        });
+    
+}
+
+//display the line
+function addLine() {
+  myPath.setMap(map);
+}
+
+//remove the line
+function removeLine() {
+    for (i=0; i<lines.length; i++) 
+    {                           
+      lines[i].setMap(null); 
+    }
+}
+
+//delete the waypoints, controlled by a button
+function deleteWaypoints() {
+    markerCoordinates = [];
+}
+
+//check that the player has placed at least 3 waypoints before doing a lookup
+function doConfirm() {
+    if (waypoints_placed < 3) {
+        infowindow_more.setPosition({lat: lat_via, lng: long_via});
+        infowindow_more.open(map, cityCircle);        //
+    }
+    else{
+        dirLookup(lat_src, long_src, lat_dst, long_dst, markerCoordinates);
+    }
+}
+
+//function used to debug the route, can be controlled by a button, hidden for now
+function debugRoute() {
+    dirLookup(lat_src, long_src, lat_dst, long_dst, markerCoordinates);
+    alert("Pes: " + dur_pes + "\nThis guess: " + resp_dur + "\nNew Score: " +new_score+ "\nCurrent Score:" +current_score)
+
+}
+
+//This is called when the player is happy with their route or giving up on this map
+function moveOn() {
+
+    //we want to check they have had at least one go
+    if (got_route) {
+       new_score = current_score;
+       clearScore();
+       deleteMarkers();
+       enc_list = [encodeString];
+       got_route = false
+       
+       //if we are the last map then we want to display the info message and then go
+       // to the final score table info
+       if (idx == 7) {
+          endGame();
+       } else {
+       //otherwise increment the counter and re-intialize and move to the next map
+          idx ++;
+          current_score = 0;
+          initialize();
+       }
+    }
+    else {
+        //display the retry window
+        infowindow_retry.setPosition({lat: lat_via, lng: long_via});
+        infowindow_retry.open(map, cityCircle);
+    }
+
+}
+
+function endGame () {
+    //the player has completed all the maps, play a confirmation sound 
+    infowindow_end.setPosition({lat: lat_via, lng: long_via});
+    claps.play();
+    got_route = true
+    infowindow_end.open(map, cityCircle);
+    if (show_results == true) {
+        getResults();
+    }
+    else {
+        show_results = true
+    }
+}
+
+function getResults() {
+
+    //creates a table that displays the users results for each map and their overall score
+    //not much to say here, would be nice to jazz it up a bit but it displays the basics
+    var font_name = 'font-family: sans-serif;';
+    var font_size = 'font-size: 25px;';
+    var font_size2 = 'font-size: 25px;';
+    var font_col1 = 'color: #0047b3;';
+    var font_col2 = 'color: #006633;';
+    var font_col3 = 'color: #ff0000;';
+
+    var myTable= "<table style='width:70%;'><tr>";
+    myTable+= "<td style='width: 50px;" +font_col1 + font_size + font_name + "text-align: left;'>Map</td>";
+    myTable+= "<td style='width: 50px;" +font_col1 + font_size + font_name + "text-align: left;'>Source</td>";
+    myTable+= "<td style='width: 50px;" +font_col1 + font_size + font_name + "text-align: left;'>Dest</td>";
+    myTable+= "<td style='width: 50px;" +font_col1 + font_size + font_name + "text-align: left;'>Avoid</td>";
+    myTable+= "<td style='width: 50px;" +font_col1 + font_size + font_name + "text-align: left;'>You</td>";
+    myTable+= "<td style='width: 50px;" +font_col1 + font_size + font_name + "text-align: left;'>Google</td>";
+    myTable+= "<td style='width: 50px;" +font_col1 + font_size + font_name + "text-align: left;'>Delta</td>";
+
+
+    myTable+="<tr><td style='width: 50px; text-align: left;'>---------------</td>";
+    myTable+="<td     style='width: 50px; text-align: left;'>---------------</td>";
+    myTable+="<td     style='width: 50px; text-align: left;'>---------------</td>";
+    myTable+="<td     style='width: 50px; text-align: left;'>---------------</td>";
+    myTable+="<td     style='width: 50px; text-align: left;'>---------------</td>";
+    myTable+="<td     style='width: 50px; text-align: left;'>---------------</td>";
+
+    myTable+="<td     style='width: 50px; text-align: left;'>---------------</td></tr>";
+
+    for (var i=0; i<8; i++) {
+        var map_num = i+1;
+        var delta = gScore[i] - myScore[i]
+        myTable+="<tr><td style='width: 50px;" + font_name +font_col2 + "'>Map " + map_num + "</td>";
+        myTable+="<td style='width: 50px; "+ font_name +font_col2 + " text-align: left;'>" + namesrc_arr[i] + "</td>";
+        myTable+="<td style='width: 50px; "+ font_name +font_col2 + " text-align: left;'>" + namedst_arr[i] + "</td>";
+        myTable+="<td style='width: 50px; "+ font_name +font_col2 + " text-align: left;'>" + namevia_arr[i] + "</td>";
+        myTable+="<td style='width: 50px; "+ font_name +font_col2 + " text-align: left;'>" + myScore[i] + "</td>";
+        myTable+="<td style='width: 50px; "+ font_name +font_col2 + " text-align: left;'>" + gScore[i] + "</td>";
+        myTable+="<td style='width: 50px; "+ font_name +font_col2 + " text-align: left;'>" + delta + "</td></tr>";
+    }  
+
+    myTable+="<tr><td     style='width: 50px; text-align: left;'>---------------</td></tr>";
+    myTable+="<tr><td style='width: 50px;" + font_name +font_col3 + font_size2 + "text-align: left;'>Your final score:</td></tr>";
+    myTable+="<tr><td style='width: 50px;" + font_name +font_col3 + font_size2 + "text-align: left;'>"+ new_score + "</td></tr>";
+
+    myTable+="</table>";
+
+    //display the table
+    document.write( myTable);
+}
+
+
+$(window).load(start_game);
+
+</script>
+ 
+<!--Loop the background audio-->
+<audio autoplay loop>
+    <source src="plink_plonk.mp3" type="audio/mpeg" />
+</audio>
+  
+  
+</html>
