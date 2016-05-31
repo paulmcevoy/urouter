@@ -160,10 +160,10 @@ map_df_head.columns = ['src_name', ' dst_name', ' via_name', ' src_code', 'dst_c
 print("Found {} maps".format(maps_found))
 map_df_nohead.to_csv('times.csv', index=False, header=False) 
 map_df_head.to_csv('times_head.csv', index=False, header=True) 
-
+'''
 print("Uploading game to www.paulmcevoy.ie")
 #open an FTP session and upload the CSV and HTML
-session = FTP('ftp.paulmcevoy.ie','p565545','Qxpr39b2B0')
+session = FTP('ftp.paulmcevoy.ie','p565545','xxxxx')
 file1 = open('times.csv','rb')                  # file to send
 file2 = open('urouter.html','rb')                  # file to send
 
@@ -176,7 +176,7 @@ file1.close()                                   # close file and FTP
 file2.close()                                   # close file and FTP
 
 session.quit()
-
+'''
 #get_maps()
    
     #And we're done!
